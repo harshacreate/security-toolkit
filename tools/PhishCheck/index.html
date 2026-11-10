@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhishCheck — URL Phishing Analyzer</title>
+<style>
+  :root{--bg:#fff8f4;--card:#fff;--ink:#241613;--mut:#786055;--line:#f1e3da;--ac:#e2512f;--ac2:#c2410c;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:720px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  input{width:100%;border:1px solid var(--line);border-radius:12px;padding:14px;font:inherit;background:#fffaf7}input:focus{outline:2px solid var(--ac)}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:13px 18px;font:inherit;font-weight:600;cursor:pointer;margin-top:12px}
+  button:hover{background:var(--ac2)}.ex{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .ex button{margin:0;padding:7px 11px;font-size:12.5px;font-weight:500;background:#f6ece6;color:var(--ink)}
+  .gauge{display:flex;align-items:center;gap:18px;margin-bottom:6px}
+  .ring{position:relative;width:120px;height:120px;flex:none}.ring .v{position:absolute;inset:0;display:grid;place-items:center;font-size:30px;font-weight:800}
+  .verdict{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .flag{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+  .flag:last-child{border:0}.dot{width:9px;height:9px;border-radius:50%;margin-top:7px;flex:none}
+  .d-high{background:var(--bad)}.d-med{background:var(--warn)}.d-low{background:#9aa0a6}
+  .muted{color:var(--mut);font-size:13px}.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+  h2{font-size:15px;margin:0 0 14px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><path d="M20 5l13 5v8c0 8-5.5 13.5-13 16C12.5 31.5 7 26 7 18v-8l13-5Z" fill="#e2512f" opacity=".16" stroke="#e2512f" stroke-width="2.4"/><path d="M20 15v6M20 25h.02" stroke="#e2512f" stroke-width="3" stroke-linecap="round"/></svg>
+  <div><h1>PhishCheck</h1><p>Inspect a link for phishing red flags — heuristic analysis, 100% in your browser</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Check a URL</h2>
+    <input id="url" placeholder="paste a URL, e.g. http://paypal-verify.tk/login" onkeydown="if(event.key==='Enter')run()">
+    <div class="ex" id="ex"></div>
+    <button onclick="run()">Analyze</button>
+  </div>
+  <div id="out"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const TLDS=new Set(["zip","xyz","top","tk","ml","ga","cf","gq","country","work","click","link","review","loan","mom"]);
+const SHORT=new Set(["bit.ly","tinyurl.com","goo.gl","t.co","ow.ly","is.gd","cutt.ly"]);
+const KW=["login","signin","verify","account","secure","update","confirm","bank","password","webscr","billing","unlock","suspend"];
+const BRANDS=["paypal","apple","microsoft","google","amazon","facebook","netflix","instagram","chase","hdfc","sbi","whatsapp","dhl","coinbase","binance"];
+const EX=["https://www.github.com/explore","http://paypal-verify.tk/login","https://netflix.com@account-update.xyz/billing","http://192.168.1.1/secure/account"];
+$('ex').innerHTML=EX.map(u=>`<button onclick="setu('${u.replace(/'/g,'')}')">${u.replace(/^https?:\/\//,'').slice(0,26)}</button>`).join('');
+function setu(u){$('url').value=u;run()}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function run(){
+  let raw=$('url').value.trim();if(!raw){return}let u;try{u=new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(raw)?raw:'http://'+raw)}catch{out(100,'Invalid',[["could not parse this as a URL","high"]]);return}
+  const host=u.hostname.toLowerCase(),reg=host.split('.').slice(-2).join('.'),tld=host.split('.').pop();
+  const flags=[];let score=0;
+  const isIP=/^\d{1,3}(\.\d{1,3}){3}$/.test(host)||host.includes(':');
+  if(isIP){flags.push(["IP address used as the hostname (legit sites use names)","high"]);score+=35}
+  if(u.username||u.password){flags.push(["URL user-info before '@' can disguise the real destination","high"]);score+=30}
+  if(host.includes('xn--')){flags.push(["punycode host (possible look-alike / homograph attack)","high"]);score+=30}
+  if(TLDS.has(tld)){flags.push(["suspicious top-level domain .“"+tld+"”","med"]);score+=20}
+  if(!['http:','https:'].includes(u.protocol)){flags.push(["non-web URL scheme — inspect carefully before opening","high"]);score+=35}else if(u.protocol!=='https:'){flags.push(["no HTTPS — traffic isn't encrypted","low"]);score+=8}
+  if(SHORT.has(reg)){flags.push(["URL shortener hides the real destination","med"]);score+=15}
+  const brandHit=BRANDS.filter(b=>host.includes(b)||u.pathname.toLowerCase().includes(b));
+  if(brandHit.length&&!brandHit.some(b=>reg.includes(b))){flags.push(["brand name \""+brandHit[0]+"\" on a domain that isn't theirs ("+reg+")","high"]);score+=30}
+  const kw=KW.filter(k=>raw.toLowerCase().includes(k));if(kw.length){flags.push(["credential/urgency keywords: "+kw.slice(0,5).join(', '),"med"]);score+=10}
+  const subs=host.split('.').length-2;if(subs>=3){flags.push([subs+" subdomains (used to bury the real domain)","low"]);score+=8}
+  if((host.match(/-/g)||[]).length>=3){flags.push(["many hyphens in the domain","low"]);score+=6}
+  if(raw.length>75){flags.push(["unusually long URL ("+raw.length+" chars)","low"]);score+=6}
+  score=Math.min(100,score);if(!flags.length)flags.push(["no common phishing red flags detected","low"]);
+  const verdict=score>=60?'Likely phishing':score>=30?'Suspicious':'Looks clean';
+  out(score,verdict,flags,host,reg);
+}
+function out(score,verdict,flags,host,reg){
+  const col=score>=60?'#dc2626':score>=30?'#d97706':'#16a34a';const r=52,c=2*Math.PI*r;
+  $('out').innerHTML=`<div class="card">
+    <div class="gauge"><div class="ring"><svg width="120" height="120" style="transform:rotate(-90deg)"><circle cx="60" cy="60" r="${r}" stroke="#eee" stroke-width="12" fill="none"/><circle cx="60" cy="60" r="${r}" stroke="${col}" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-score/100)}"/></svg><div class="v" style="color:${col}">${score}</div></div>
+    <div><div class="verdict" style="color:${col}">${verdict}</div>${host?`<div class="muted mono">host: ${esc(host)} · domain: ${esc(reg)}</div>`:''}<div class="muted">risk score out of 100</div></div></div>
+    <h2 style="margin-top:8px">Red-flag breakdown</h2>
+    ${flags.map(([t,s])=>`<div class="flag"><span class="dot d-${s}"></span><span>${esc(t)}</span></div>`).join('')}
+    <p class="muted" style="margin-top:12px">Heuristic guidance only — when unsure, don't click. Verify by typing the known address yourself.</p></div>`;
+}
+</script>
+</body>
+</html>

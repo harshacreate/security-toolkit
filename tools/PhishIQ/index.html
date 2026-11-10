@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhishIQ — Phishing Awareness Quiz</title>
+<style>
+  :root{--bg:#eff6ff;--card:#fff;--ink:#0f1a2b;--mut:#5a6b85;--line:#dbe6f5;--ac:#2563eb;--ac2:#1d4ed8;--ok:#16a34a;--bad:#dc2626;--okbg:#e7f6ec;--badbg:#fdecec}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:680px;margin:0 auto;padding:28px 18px 80px}
+  .bar{height:8px;background:#dbe6f5;border-radius:99px;overflow:hidden;margin-bottom:20px}.bar span{display:block;height:100%;background:var(--ac);transition:.3s}
+  .meta{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px;box-shadow:0 1px 3px #0000000a}
+  .scn{background:#f7faff;border:1px solid var(--line);border-radius:14px;padding:16px;font-size:14.5px;margin:6px 0 20px}
+  .scn .from{color:var(--mut);font-size:13px;font-family:ui-monospace,Menlo,monospace}
+  .scn .subj{font-weight:700;margin:6px 0}
+  .scn .url{font-family:ui-monospace,Menlo,monospace;background:#eef3fb;border-radius:8px;padding:6px 10px;display:inline-block;margin-top:8px;font-size:13px;word-break:break-all}
+  .btns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .btns button{padding:15px;border:1px solid var(--line);border-radius:14px;font:inherit;font-weight:700;cursor:pointer;background:#fff}
+  .btns button:hover{border-color:var(--ac)}
+  .phish{color:var(--bad)}.legit{color:var(--ok)}
+  .feedback{margin-top:18px;padding:14px 16px;border-radius:14px;display:none}
+  .fb-ok{background:var(--okbg)}.fb-bad{background:var(--badbg)}
+  .feedback.show{display:block}.feedback b{display:block;margin-bottom:5px}
+  .next{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 18px;font:inherit;font-weight:600;cursor:pointer;margin-top:16px;width:100%}
+  .result{text-align:center;padding:14px}.result .big{font-size:52px;font-weight:800;letter-spacing:-.03em}
+  .muted{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><path d="M8 12h18l-4-4M8 20h22M8 28h14l-4 4" stroke="#2563eb" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="31" cy="27" r="5" stroke="#2563eb" stroke-width="2.6" fill="none"/></svg>
+  <div><h1>PhishIQ</h1><p>Can you spot the phish? A quick security-awareness quiz</p></div>
+</div>
+<div class="wrap">
+  <div class="bar"><span id="prog" style="width:0"></span></div>
+  <div class="meta"><span id="qnum">Question 1</span><span id="scoreLbl">Score 0</span></div>
+  <p class="muted">Training simplification: this quiz shows only visible clues. Sender fields can be spoofed; verify unexpected messages by opening the service directly.</p>
+  <div class="card" id="game"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const Q=[
+  {from:"security@paypaI.com",subj:"Your account is limited — verify now",url:"http://paypaI-secure.com/verify",phish:true,why:"The domain uses a capital 'I' instead of 'l' (paypaI vs paypal) and a non-PayPal URL. Urgency + look-alike domain = classic phishing."},
+  {from:"no-reply@github.com",subj:"[GitHub] A new SSH key was added",url:"https://github.com/settings/keys",phish:false,why:"This exercise treats the notification as expected and the visible link as github.com. In real email, sender details can be spoofed; verify the notice in your signed-in GitHub account."},
+  {from:"hr@yourcompany.com",subj:"Updated payroll — login to confirm",url:"https://yourcompany-payroll.verify-login.ru/",phish:true,why:"The link's real domain is verify-login.ru (Russia), not your company. The brand name is only a subdomain — a common disguise."},
+  {from:"support@amazon.com",subj:"Your order #112-4567 has shipped",url:"https://www.amazon.com/orders",phish:false,why:"This exercise treats the order notice as expected and the visible link as amazon.com. A displayed sender is not proof; check order status by opening your account directly."},
+  {from:"it-helpdesk@0utlook.com",subj:"Mailbox full — click to keep your account",url:"http://webmail-reset.000webhostapp.com/login",phish:true,why:"Sender domain '0utlook' uses a zero, the link is a free hosting site, and it threatens account loss to rush you."},
+  {from:"billing@netflix.com",subj:"Payment failed — update within 24 hours or lose access",url:"https://netflix.com@account-billing.xyz/update",phish:true,why:"The '@' means the real destination is account-billing.xyz, not netflix.com. The 24-hour threat is pressure. Everything before '@' is ignored by browsers."},
+  {from:"noreply@linkedin.com",subj:"You appeared in 9 searches this week",url:"https://www.linkedin.com/feed/",phish:false,why:"This exercise treats the notice as expected and the visible link as linkedin.com. A displayed sender can be spoofed; verify it in your signed-in account."},
+  {from:"admin@bank-secure-alerts.com",subj:"Unusual login detected — confirm your card & PIN",url:"http://192.168.44.9/secure/confirm.php",phish:true,why:"A bank would never ask for your PIN, the link is a raw IP address, and the sender domain isn't your bank's. Multiple red flags."},
+];
+let i=0,score=0,answered=false;
+function render(){
+  answered=false;const q=Q[i];
+  $('qnum').textContent=`Question ${i+1} of ${Q.length}`;$('scoreLbl').textContent=`Score ${score}`;$('prog').style.width=(i/Q.length*100)+'%';
+  $('game').innerHTML=`<div class="scn"><div class="from">From: ${esc(q.from)}</div><div class="subj">${esc(q.subj)}</div>Links to: <span class="url">${esc(q.url)}</span></div>
+    <p style="font-weight:600;margin:0 0 12px">Is this phishing or legitimate?</p>
+    <div class="btns"><button class="phish" onclick="answer(true)">🎣 Phishing</button><button class="legit" onclick="answer(false)">✓ Legitimate</button></div>
+    <div class="feedback" id="fb"></div><div id="nextWrap"></div>`;
+}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function answer(guess){
+  if(answered)return;answered=true;const q=Q[i];const correct=guess===q.phish;if(correct)score++;
+  $('scoreLbl').textContent=`Score ${score}`;
+  const fb=$('fb');fb.className='feedback show '+(correct?'fb-ok':'fb-bad');
+  fb.innerHTML=`<b style="color:${correct?'var(--ok)':'var(--bad)'}">${correct?'✓ Correct':'✗ Not quite'} — this is ${q.phish?'PHISHING':'LEGITIMATE'}.</b>${esc(q.why)}`;
+  $('nextWrap').innerHTML=`<button class="next" onclick="next()">${i<Q.length-1?'Next question →':'See my result'}</button>`;
+}
+function next(){i++;if(i<Q.length)render();else result()}
+function result(){
+  $('prog').style.width='100%';$('qnum').textContent='Complete';
+  const pct=Math.round(score/Q.length*100);
+  const msg=pct>=85?"Sharp eyes — you'd make a tough target.":pct>=60?"Solid instincts, with a little room to sharpen.":"Worth brushing up — the red flags are learnable.";
+  $('game').innerHTML=`<div class="result"><div class="big" style="color:var(--ac)">${score}/${Q.length}</div><p style="font-size:18px;font-weight:700;margin:6px 0">${pct}% — ${msg}</p>
+    <p class="muted">Remember: inspect the destination, but do not trust a displayed sender by itself. Open the service directly or verify through a separate trusted channel.</p>
+    <button class="next" onclick="restart()">Try again</button></div>`;
+}
+function restart(){i=0;score=0;render()}
+render();
+</script>
+</body>
+</html>

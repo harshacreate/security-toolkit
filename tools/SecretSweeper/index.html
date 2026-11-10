@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SecretSweeper — PII & Secret Finder / Redactor</title>
+<style>
+  :root{--bg:#fdf4f6;--card:#fff;--ink:#1f1116;--mut:#7a5c64;--line:#f3dfe4;--ac:#e11d48;--ac2:#be123c;--ok:#16a34a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 12px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:12px;padding:14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#fffafb}textarea:focus{outline:2px solid var(--ac)}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 16px;font:inherit;font-weight:600;cursor:pointer;margin-top:10px}
+  button:hover{background:var(--ac2)}button.ghost{background:#fbe3e8;color:var(--ink);margin-left:8px}
+  .counts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+  .cnt{background:#fbe3e8;color:var(--ac);border-radius:99px;padding:5px 12px;font-size:13px;font-weight:600}
+  .cnt.zero{background:#eef1f5;color:var(--mut)}
+  .hl{background:#ffe08a;border-radius:4px;padding:0 2px;font-weight:600}
+  .rendered{font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:pre-wrap;word-break:break-word;background:#fffafb;border:1px solid var(--line);border-radius:12px;padding:14px;max-height:320px;overflow:auto}
+  .redacted{color:var(--ac);font-weight:700}
+  .muted{color:var(--mut);font-size:13px}.ok{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><circle cx="18" cy="18" r="11" stroke="#e11d48" stroke-width="3"/><path d="M26 26l8 8" stroke="#e11d48" stroke-width="3" stroke-linecap="round"/><path d="M14 18h8M18 14v8" stroke="#e11d48" stroke-width="2" stroke-linecap="round" opacity=".5"/></svg>
+  <div><h1>SecretSweeper</h1><p>Scan text &amp; logs for secrets and PII, then redact them — all in your browser</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Paste text, logs, config or code</h2>
+    <textarea id="in" placeholder="paste content to scan for emails, IPs, cards, tokens, keys…" oninput="scan()"></textarea>
+    <button onclick="sample()">Load sample</button>
+    <button class="ghost" onclick="copyRedacted()">Copy redacted</button>
+  </div>
+  <div class="card">
+    <h2>Findings</h2>
+    <div class="counts" id="counts"></div>
+    <div class="muted" id="summary"></div>
+  </div>
+  <div class="card">
+    <h2>Highlighted &amp; redacted view</h2>
+    <div class="rendered" id="view"><span class="muted">paste something above…</span></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const PATS=[
+  ["Email",/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g],
+  ["IPv4",/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g],
+  ["Credit card",/\b(?:\d[ -]*?){13,19}\b/g],
+  ["AWS access key",/\bAKIA[0-9A-Z]{16}\b/g],
+  ["API key / token",/\b(?:sk|pk|ghp|xox[baprs]|AIza)[A-Za-z0-9_\-]{10,}\b/g],
+  ["JWT",/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g],
+  ["Phone",/\b(?:\+?\d{1,3}[ -]?)?(?:\(?\d{3}\)?[ -]?)\d{3}[ -]?\d{4}\b/g],
+  ["Private key block",/-----BEGIN ([A-Z ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/g],
+];
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function luhn(s){const d=s.replace(/\D/g,'');if(d.length<13||d.length>19)return false;let sum=0,alt=false;for(let i=d.length-1;i>=0;i--){let n=+d[i];if(alt){n*=2;if(n>9)n-=9}sum+=n;alt=!alt}return sum%10===0}
+function sample(){$('in').value=`User: harsha@example.com logged in from 203.0.113.42
+Card on file: 4111 1111 1111 1111 (test)
+AWS_KEY=AKIAIOSFODNN7EXAMPLE  token=sk_live_abc123DEF456ghi789
+Call back at +1 (415) 555-0132
+session=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdEFGHijkl
+-----BEGIN RSA PRIVATE KEY-----
+test-key-material
+-----END RSA PRIVATE KEY-----`;scan()}
+function scan(){
+  const text=$('in').value;if(!text){$('counts').innerHTML='';$('summary').textContent='';$('view').innerHTML='<span class="muted">paste something above…</span>';return}
+  const found={},spans=[];
+  PATS.forEach(([name,re])=>{let m;re.lastIndex=0;while((m=re.exec(text))){if(name==="Credit card"&&!luhn(m[0]))continue;(found[name]=found[name]||[]).push(m[0]);spans.push([m.index,m.index+m[0].length,name])}});
+  spans.sort((a,b)=>a[0]-b[0]);
+  // build highlighted (non-overlapping)
+  let out='',last=0;const merged=[];spans.forEach(s=>{if(!merged.length||s[0]>=merged[merged.length-1][1])merged.push(s)});
+  merged.forEach(([a,b])=>{out+=esc(text.slice(last,a))+'<span class="hl">'+esc(text.slice(a,b))+'</span>';last=b});out+=esc(text.slice(last));
+  // redacted
+  let red=text;merged.slice().reverse().forEach(([a,b,name])=>{red=red.slice(0,a)+'['+name.toUpperCase().replace(/ /g,'_')+'_REDACTED]'+red.slice(b)});
+  const total=merged.length;
+  $('counts').innerHTML=PATS.map(([n])=>`<span class="cnt ${found[n]?'':'zero'}">${n}: ${found[n]?found[n].length:0}</span>`).join('');
+  $('summary').innerHTML=total?`Found <b>${total}</b> sensitive item(s). Review before sharing logs or screenshots.`:'<span class="ok">No secrets or PII detected.</span>';
+  $('view').innerHTML=`<div style="margin-bottom:12px">${out}</div><hr style="border:0;border-top:1px dashed var(--line)"><div style="margin-top:12px"><b class="muted">Redacted:</b><br><span class="redacted">${esc(red).replace(/\[([A-Z_]+_REDACTED)\]/g,'<span class="redacted">[$1]</span>')}</span></div>`;
+  window.__redacted=red;
+}
+function copyRedacted(){navigator.clipboard&&navigator.clipboard.writeText(window.__redacted||'')}
+</script>
+</body>
+</html>

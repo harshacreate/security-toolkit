@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSPForge — Content-Security-Policy Analyzer & Builder</title>
+<style>
+  :root{--bg:#f3faf5;--card:#fff;--ink:#0f1b14;--mut:#55685c;--line:#dcebe1;--ac:#059669;--ac2:#047857;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 12px}
+  textarea{width:100%;min-height:90px;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#fbfdfc}textarea:focus{outline:2px solid var(--ac)}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 16px;font:inherit;font-weight:600;cursor:pointer;margin-top:10px}
+  button:hover{background:var(--ac2)}button.ghost{background:#e4f5ec;color:var(--ink);margin-left:8px}
+  .dir{padding:12px 0;border-bottom:1px solid var(--line)}.dir:last-child{border:0}
+  .dname{font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:14px}.dsrc{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--ac);word-break:break-all}
+  .ddesc{color:var(--mut);font-size:13px;margin-top:3px}
+  .issue{display:flex;gap:9px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}.issue:last-child{border:0}
+  .dot{width:9px;height:9px;border-radius:50%;margin-top:7px;flex:none}.d-bad{background:var(--bad)}.d-warn{background:var(--warn)}.d-ok{background:var(--ok)}
+  .grade{display:flex;align-items:center;gap:16px}.big{width:80px;height:80px;border-radius:18px;display:grid;place-items:center;font-size:38px;font-weight:800;color:#fff}
+  .muted{color:var(--mut);font-size:13px}.mono{font-family:ui-monospace,Menlo,monospace}
+  .starter{background:#0f1320;color:#a7f3d0;border-radius:12px;padding:14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><path d="M20 5l12 4v8c0 8-5 13-12 16C13 30 8 25 8 17V9l12-4Z" fill="#059669" opacity=".15" stroke="#059669" stroke-width="2.4"/><path d="M20 13v8M20 25v.02" stroke="#059669" stroke-width="3" stroke-linecap="round"/></svg>
+  <div><h1>CSPForge</h1><p>Analyze a Content-Security-Policy for weaknesses, or start from a safe baseline</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Paste a Content-Security-Policy</h2>
+    <textarea id="csp" placeholder="default-src 'self'; script-src 'self' 'unsafe-inline'; img-src *"></textarea>
+    <button onclick="analyze()">Analyze</button>
+    <button class="ghost" onclick="sample()">Load sample</button>
+  </div>
+  <div id="out"></div>
+  <div class="card">
+    <h2>Safe starter policy</h2>
+    <p class="muted">A strict baseline to adapt (allow only what your app needs):</p>
+    <div class="starter" id="starter">default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests</div>
+    <button class="ghost" onclick="copyStarter()">Copy</button>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const DESC={"default-src":"Fallback source list for most resource types.","script-src":"Where scripts may load from — the key XSS control.","style-src":"Where stylesheets may load from.","img-src":"Where images may load from.","connect-src":"Allowed fetch/XHR/WebSocket endpoints.","font-src":"Where fonts may load from.","object-src":"Plugins (should be 'none').","frame-ancestors":"Who may frame this page (clickjacking defense).","base-uri":"Restricts <base> to prevent base-tag hijacking.","form-action":"Where forms may submit.","frame-src":"Allowed iframe sources."};
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function sample(){$('csp').value="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.example.com; img-src *; object-src 'self'";analyze()}
+function copyStarter(){navigator.clipboard&&navigator.clipboard.writeText($('starter').textContent)}
+function analyze(){
+  const raw=$('csp').value.trim();if(!raw){$('out').innerHTML='';return}
+  const dirs={};raw.split(';').forEach(p=>{const t=p.trim().split(/\s+/);if(t[0])dirs[t[0].toLowerCase()]=t.slice(1)});
+  const issues=[];let score=100;
+  const sj=(dirs['script-src']||dirs['default-src']||[]);
+  if(sj.includes("'unsafe-inline'")){issues.push(["script-src allows 'unsafe-inline' — this largely defeats CSP's XSS protection.","bad"]);score-=35}
+  if(sj.includes("'unsafe-eval'")){issues.push(["script-src allows 'unsafe-eval' — enables eval()-based injection.","bad"]);score-=20}
+  if(sj.includes('*')){issues.push(["script-src uses a wildcard '*' — scripts can load from anywhere.","bad"]);score-=30}
+  if(!dirs['default-src']&&!dirs['script-src']){issues.push(["no default-src or script-src — scripts are unrestricted.","bad"]);score-=35}
+  if(!('object-src'in dirs)||!(dirs['object-src']||[]).includes("'none'")){issues.push(["object-src is not 'none' — legacy plugins can be an injection vector.","warn"]);score-=10}
+  if(!('base-uri'in dirs)){issues.push(["no base-uri — a <base> tag injection can hijack relative URLs.","warn"]);score-=8}
+  if(!('frame-ancestors'in dirs)){issues.push(["no frame-ancestors — add 'none' or 'self' to prevent clickjacking.","warn"]);score-=8}
+  if(Object.values(dirs).some(v=>v.some(s=>/^http:/.test(s)))){issues.push(["a source uses plain http: — allows insecure content.","warn"]);score-=6}
+  if(!issues.length)issues.push(["No major weaknesses found — good baseline.","ok"]);
+  score=Math.max(0,score);const g=score>=90?'A':score>=75?'B':score>=55?'C':score>=35?'D':'F';
+  const col=score>=75?'#16a34a':score>=50?'#d97706':'#dc2626';
+  $('out').innerHTML=`<div class="card"><div class="grade"><div class="big" style="background:${col}">${g}</div><div><div style="font-size:24px;font-weight:800">${score}/100</div><div class="muted">policy strength</div></div></div></div>
+    <div class="card"><h2>Findings</h2>${issues.map(([t,s])=>`<div class="issue"><span class="dot d-${s}"></span><span>${esc(t)}</span></div>`).join('')}</div>
+    <div class="card"><h2>Directives (${Object.keys(dirs).length})</h2>${Object.entries(dirs).map(([k,v])=>`<div class="dir"><span class="dname">${esc(k)}</span> <span class="dsrc">${esc(v.join(' ')||"(empty)")}</span><div class="ddesc">${esc(DESC[k]||'Custom/less-common directive.')}</div></div>`).join('')}</div>`;
+}
+sample();
+</script>
+</body>
+</html>

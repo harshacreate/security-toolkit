@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CipherVault — Browser AES-256-GCM Encryption</title>
+<style>
+  :root{--bg:#f6f5fc;--card:#fff;--ink:#17132a;--mut:#6a6587;--line:#e7e4f3;--ac:#6d28d9;--ac2:#5b21b6;--ok:#16a34a;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:720px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 14px}label{display:block;font-size:13px;color:var(--mut);margin:12px 0 6px}
+  textarea,input{width:100%;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font:inherit;background:#fcfbfe}
+  textarea{min-height:90px;font-family:ui-monospace,Menlo,monospace;font-size:13px}input:focus,textarea:focus{outline:2px solid var(--ac)}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tab{padding:9px 16px;border:1px solid var(--line);border-radius:99px;cursor:pointer;color:var(--mut);font-weight:600;font-size:14px;background:#fff}
+  .tab.active{background:var(--ac);color:#fff;border-color:transparent}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:18px;text-align:center;color:var(--mut);cursor:pointer;background:#fcfbfe;margin-bottom:10px}
+  .drop.over{border-color:var(--ac);color:var(--ac)}.drop input{display:none}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:13px 18px;font:inherit;font-weight:600;cursor:pointer;width:100%;margin-top:14px}
+  button:hover{background:var(--ac2)}
+  .out{margin-top:14px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f3f0fb;border:1px solid var(--line);border-radius:12px;padding:14px;word-break:break-all;max-height:220px;overflow:auto}
+  .note{margin-top:12px;padding:11px 13px;border-radius:12px;font-size:14px}.n-ok{background:#e7f6ec;color:var(--ok)}.n-bad{background:#fdecec;color:var(--bad)}
+  .muted{color:var(--mut);font-size:13px}.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .pill{font-size:11px;background:#f0ebfb;color:var(--ac);border-radius:99px;padding:4px 10px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><rect x="7" y="16" width="26" height="18" rx="4" fill="#6d28d9"/><path d="M12 16v-3a8 8 0 0116 0v3" stroke="#6d28d9" stroke-width="3" fill="none"/><path d="M20 23v5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="20" cy="22" r="2.4" fill="#fff"/></svg>
+  <div><h1>CipherVault</h1><p>Encrypt files &amp; text with AES-256-GCM — the key never leaves your device</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <div class="tabs"><div class="tab active" data-m="enc" onclick="setMode('enc')">Encrypt</div><div class="tab" data-m="dec" onclick="setMode('dec')">Decrypt</div></div>
+    <div id="encPane">
+      <label class="drop" id="drop"><input type="file" id="file"><b id="dropLabel">Drop a file to encrypt</b><br><span class="muted">processed in memory, never uploaded</span></label>
+      <label>…or type text</label>
+      <textarea id="plain" placeholder="secret message…"></textarea>
+    </div>
+    <div id="decPane" style="display:none">
+      <label>Paste the encrypted blob (base64)</label>
+      <textarea id="cipher" placeholder="base64 from CipherVault…"></textarea>
+    </div>
+    <label>Passphrase</label>
+    <input type="password" id="pass" placeholder="a strong passphrase">
+    <button id="go" onclick="run()">Encrypt</button>
+    <div class="meta" id="meta"></div>
+    <div id="result"></div>
+  </div>
+  <p class="muted" style="text-align:center">AES-256-GCM · key derived with PBKDF2-HMAC-SHA256 (600,000 iterations) · authenticated encryption detects tampering.</p>
+</div>
+<script>
+const $=id=>document.getElementById(id);let mode='enc',fileBytes=null;const ITERATIONS=600000,LEGACY_ITERATIONS=200000,HEADER_BYTES=35;
+function setMode(m){mode=m;document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.m===m));
+  $('encPane').style.display=m==='enc'?'':'none';$('decPane').style.display=m==='dec'?'':'none';$('go').textContent=m==='enc'?'Encrypt':'Decrypt';$('result').innerHTML='';$('meta').innerHTML=''}
+function b64(buf){const bytes=new Uint8Array(buf);let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(binary)}
+function unb64(s){return Uint8Array.from(atob(s.trim()),c=>c.charCodeAt(0))}
+async function deriveKey(pass,salt,iterations){const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+function pack(salt,iv,ciphertext){const bytes=new Uint8Array(HEADER_BYTES+ciphertext.byteLength);bytes.set([0x43,0x56,0x01],0);new DataView(bytes.buffer).setUint32(3,ITERATIONS);bytes.set(salt,7);bytes.set(iv,23);bytes.set(new Uint8Array(ciphertext),HEADER_BYTES);return bytes}
+function unpack(bytes){if(bytes.length<44)throw new Error('invalid encrypted data');if(bytes[0]===0x43&&bytes[1]===0x56&&bytes[2]===0x01){if(bytes.length<HEADER_BYTES+16)throw new Error('invalid encrypted data');const iterations=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength).getUint32(3);if(iterations<100000||iterations>1000000)throw new Error('unsupported work factor');return{salt:bytes.slice(7,23),iv:bytes.slice(23,35),ciphertext:bytes.slice(HEADER_BYTES),iterations}}return{salt:bytes.slice(0,16),iv:bytes.slice(16,28),ciphertext:bytes.slice(28),iterations:LEGACY_ITERATIONS}}
+function wireDrop(){const d=$('drop'),f=$('file');$('plain').addEventListener('input',()=>{if($('plain').value){fileBytes=null;f.value='';$('dropLabel').textContent='Drop a file to encrypt'}});d.ondragover=e=>{e.preventDefault();d.classList.add('over')};d.ondragleave=()=>d.classList.remove('over');
+  d.ondrop=e=>{e.preventDefault();d.classList.remove('over');if(e.dataTransfer.files[0])pick(e.dataTransfer.files[0])};f.onchange=()=>{if(f.files[0])pick(f.files[0])}}
+function pick(file){const fr=new FileReader();fr.onload=()=>{fileBytes=new Uint8Array(fr.result);$('dropLabel').textContent='📄 '+file.name+' ('+file.size+' bytes)';$('plain').value=''};fr.readAsArrayBuffer(file)}
+async function run(){
+  const pass=$('pass').value;if(!pass){show('n-bad','Enter a passphrase first.');return}
+  try{
+    if(mode==='enc'){
+      const data=fileBytes!==null?fileBytes:new TextEncoder().encode($('plain').value);
+      if(!data.length&&fileBytes===null){show('n-bad','Nothing to encrypt.');return}
+      const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+      const key=await deriveKey(pass,salt,ITERATIONS);const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,data);
+      const blob=pack(salt,iv,ct);
+      $('meta').innerHTML='<span class="pill">AES-256-GCM</span><span class="pill">PBKDF2 600k</span><span class="pill">'+data.length+' bytes</span>';
+      $('result').innerHTML='<div class="note n-ok">✓ Encrypted. Copy the blob below to share or store.</div><div class="out">'+b64(blob)+'</div>';
+    }else{
+      const blob=unpack(unb64($('cipher').value));const key=await deriveKey(pass,blob.salt,blob.iterations);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:blob.iv},key,blob.ciphertext);
+      try{const txt=new TextDecoder('utf-8',{fatal:true}).decode(pt);$('result').innerHTML='<div class="note n-ok">✓ Decrypted &amp; authenticated (GCM tag valid).</div><div class="out">'+txt.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</div>'}
+      catch{const href=URL.createObjectURL(new Blob([pt],{type:'application/octet-stream'}));$('result').innerHTML='<div class="note n-ok">✓ Decrypted &amp; authenticated (GCM tag valid). This is binary data.</div><a class="out" id="download" download="decrypted.bin">Download decrypted file</a>';const link=$('download');link.href=href;link.onclick=()=>setTimeout(()=>URL.revokeObjectURL(href),1000)}
+    }
+  }catch(e){show('n-bad',mode==='enc'?'Encryption failed in this browser.':'Decryption failed — wrong passphrase or the data was altered.')}
+}
+function show(cls,msg){$('result').innerHTML='<div class="note '+cls+'">'+msg+'</div>'}
+wireDrop();
+</script>
+</body>
+</html>

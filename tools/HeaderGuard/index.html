@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HeaderGuard — HTTP Security Header Grader</title>
+<style>
+  :root{--bg:#f4f6f9;--card:#fff;--ink:#121a24;--mut:#5f6b7a;--line:#e3e8ef;--ac:#334155;--ac2:#1e293b;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 14px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:12px;padding:14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#fbfcfe}textarea:focus{outline:2px solid var(--ac)}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:13px 18px;font:inherit;font-weight:600;cursor:pointer;margin-top:12px}
+  button:hover{background:var(--ac2)}button.ghost{background:#eef1f6;color:var(--ink);margin-left:8px}
+  .grade{display:flex;align-items:center;gap:18px}
+  .big{width:92px;height:92px;border-radius:20px;display:grid;place-items:center;font-size:44px;font-weight:800;color:#fff;flex:none}
+  .hrow{display:grid;grid-template-columns:26px 1fr auto;gap:12px;padding:13px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+  .hrow:last-child{border:0}.ic{font-size:18px;text-align:center}
+  .hname{font-weight:600;font-size:14px}.hdesc{color:var(--mut);font-size:13px}.hval{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#1e293b;word-break:break-all;margin-top:3px}
+  .badge{font-size:11px;font-weight:700;padding:4px 9px;border-radius:99px;white-space:nowrap}
+  .b-ok{background:#e7f6ec;color:var(--ok)}.b-miss{background:#fdecec;color:var(--bad)}.b-warn{background:#fef3e2;color:var(--warn)}
+  .muted{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><path d="M20 5l12 4v8c0 8-5 13-12 16C13 30 8 25 8 17V9l12-4Z" fill="#334155" opacity=".14" stroke="#334155" stroke-width="2.4"/><path d="M15 20l4 4 7-8" stroke="#334155" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+  <div><h1>HeaderGuard</h1><p>Grade a site's HTTP security headers — paste response headers, get a report</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Paste HTTP response headers</h2>
+    <p class="muted">Get them from your browser DevTools (Network → a request → Response Headers) or <code>curl -I https://site</code>.</p>
+    <textarea id="hdrs" placeholder="content-security-policy: default-src 'self'&#10;strict-transport-security: max-age=63072000&#10;x-content-type-options: nosniff&#10;server: nginx/1.18.0"></textarea>
+    <button onclick="grade()">Grade headers</button>
+    <button class="ghost" onclick="loadSample()">Load sample</button>
+  </div>
+  <div id="out"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const CHECKS=[
+  {key:"strict-transport-security",name:"Strict-Transport-Security (HSTS)",weight:2,desc:"Forces HTTPS, stopping SSL-strip downgrade attacks.",weak:v=>{const m=v.match(/\bmax-age\s*=\s*(\d+)/i);return !m||Number(m[1])===0?"max-age should be a positive number":null}},
+  {key:"content-security-policy",name:"Content-Security-Policy (CSP)",weight:2,desc:"The strongest defense against XSS and content injection.",weak:v=>/unsafe-inline|unsafe-eval|\*/.test(v)?"present but permissive (unsafe-inline / wildcard)":null},
+  {key:"x-content-type-options",name:"X-Content-Type-Options",weight:1,desc:"Should be 'nosniff' to stop MIME-type sniffing attacks.",weak:v=>/nosniff/i.test(v)?null:"should be 'nosniff'"},
+  {key:"x-frame-options",name:"X-Frame-Options / CSP frame-ancestors",weight:1,desc:"Prevents clickjacking via DENY or SAMEORIGIN, or a restrictive CSP frame-ancestors directive.",weak:v=>/^(deny|sameorigin)$/i.test(v.trim())?null:"should be DENY or SAMEORIGIN",alt:"content-security-policy:frame-ancestors"},
+  {key:"referrer-policy",name:"Referrer-Policy",weight:1,desc:"Limits referrer leakage to third parties."},
+  {key:"permissions-policy",name:"Permissions-Policy",weight:1,desc:"Restricts powerful browser features (camera, geolocation…)."},
+];
+const INFO=[
+  {key:"server",name:"Server",desc:"Avoid disclosing exact server versions."},
+  {key:"x-powered-by",name:"X-Powered-By",desc:"Avoid disclosing the tech stack/version."},
+];
+function parse(text){const h={};text.split(/\r?\n/).forEach(l=>{const i=l.indexOf(':');if(i>0){const k=l.slice(0,i).trim().toLowerCase();h[k]=l.slice(i+1).trim()}});return h}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function loadSample(){$('hdrs').value="content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline'\nstrict-transport-security: max-age=31536000\nx-content-type-options: nosniff\nreferrer-policy: no-referrer\nserver: nginx/1.18.0\nx-powered-by: PHP/7.4.3";grade()}
+function grade(){
+  const h=parse($('hdrs').value);if(!Object.keys(h).length){$('out').innerHTML='<div class="card muted">No headers found — paste some response headers above.</div>';return}
+  let got=0,max=0,rows='';
+  CHECKS.forEach(c=>{max+=c.weight;const direct=h[c.key];const altHeader=c.alt&&c.alt.split(':')[0];const altDirective=c.alt&&c.alt.split(':')[1];const altValue=altHeader&&altDirective?(h[altHeader]||'').split(';').map(v=>v.trim()).find(v=>{const parts=v.split(/\s+/);return parts[0].toLowerCase()===altDirective&&parts.length>1}):null;const v=direct||(altValue?'CSP '+altDirective+': '+altValue:null);let badge,ic,extra='';
+    if(v){let weak=direct&&c.weak?c.weak(direct):null;if(!direct&&altValue&&/(^|\s)\*(\s|$)/.test(altValue))weak='CSP frame-ancestors uses a wildcard';if(weak){got+=c.weight*0.5;badge='<span class="badge b-warn">weak</span>';ic='⚠';extra='<div class="hdesc" style="color:var(--warn)">'+esc(weak)+'</div>'}else{got+=c.weight;badge='<span class="badge b-ok">present</span>';ic='✓'}
+      extra+='<div class="hval">'+esc(v)+'</div>';}
+    else{badge='<span class="badge b-miss">missing</span>';ic='✗'}
+    rows+=`<div class="hrow"><span class="ic">${ic}</span><div><div class="hname">${esc(c.name)}</div><div class="hdesc">${esc(c.desc)}</div>${extra}</div><div>${badge}</div></div>`;
+  });
+  INFO.forEach(c=>{const v=h[c.key];if(v){rows+=`<div class="hrow"><span class="ic">ℹ</span><div><div class="hname">${esc(c.name)} — info disclosure</div><div class="hdesc">${esc(c.desc)}</div><div class="hval">${esc(v)}</div></div><div><span class="badge b-warn">review</span></div></div>`}});
+  const pct=Math.round(got/max*100);
+  const g=pct>=90?'A':pct>=75?'B':pct>=60?'C':pct>=40?'D':'F';
+  const col=pct>=75?'#16a34a':pct>=50?'#d97706':'#dc2626';
+  $('out').innerHTML=`<div class="card"><div class="grade"><div class="big" style="background:${col}">${g}</div><div><div style="font-size:26px;font-weight:800">${pct}%</div><div class="muted">security-header coverage · ${got.toFixed(1)}/${max} weighted points</div></div></div></div>
+    <div class="card"><h2>Header-by-header</h2>${rows}</div>`;
+}
+loadSample();
+</script>
+</body>
+</html>

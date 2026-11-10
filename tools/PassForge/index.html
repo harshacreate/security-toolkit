@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PassForge — Password Strength & Generator</title>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--ink:#141722;--mut:#6b7280;--line:#e6e8f0;--ac:#2563eb;--ac2:#1d4ed8;
+        --ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}
+  .top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:720px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 14px;letter-spacing:-.01em}
+  label{display:block;font-size:13px;color:var(--mut);margin:12px 0 6px}
+  input[type=text],input[type=number]{width:100%;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font:inherit;background:#fbfbfd}
+  input:focus{outline:2px solid var(--ac)}
+  .meter{height:12px;border-radius:99px;background:#eef0f6;overflow:hidden;margin:14px 0 8px}
+  .meter span{display:block;height:100%;width:0;transition:.35s}
+  .scorerow{display:flex;justify-content:space-between;font-size:14px}.scorerow b{letter-spacing:-.01em}
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+  .tile{background:#fbfbfd;border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+  .tile .n{font-size:20px;font-weight:700}.tile .l{font-size:11px;color:var(--mut)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  td{padding:8px 4px;border-bottom:1px solid var(--line)}.t-r{text-align:right;font-weight:600}
+  .chips{margin-top:14px}.chip{display:inline-block;font-size:13px;border-radius:99px;padding:4px 11px;margin:4px 5px 0 0}
+  .c-ok{background:#e7f6ec;color:var(--ok)}.c-bad{background:#fdecec;color:var(--bad)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:12px 16px;font:inherit;font-weight:600;cursor:pointer}
+  button:hover{background:var(--ac2)}button.ghost{background:#eef1f8;color:var(--ink)}
+  .gen{font-family:ui-monospace,Menlo,monospace;font-size:18px;background:#0f1320;color:#e7eaf3;border-radius:12px;padding:16px;word-break:break-all;margin-top:14px}
+  .muted{color:var(--mut);font-size:13px}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><rect x="8" y="18" width="24" height="16" rx="4" fill="#2563eb"/><path d="M13 18v-4a7 7 0 0114 0v4" stroke="#2563eb" stroke-width="3" fill="none"/><circle cx="20" cy="26" r="3" fill="#fff"/></svg>
+  <div><h1>PassForge</h1><p>Password strength analyzer &amp; secure generator · runs 100% in your browser</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Analyze a password</h2>
+    <input type="text" id="pw" placeholder="type a password…" autocomplete="off" oninput="analyze()">
+    <div class="meter"><span id="bar"></span></div>
+    <div class="scorerow"><b id="label">—</b><span class="muted"><span id="score">0</span>/100</span></div>
+    <div class="tiles">
+      <div class="tile"><div class="n" id="ent">—</div><div class="l">entropy (bits)</div></div>
+      <div class="tile"><div class="n" id="len">—</div><div class="l">length</div></div>
+      <div class="tile"><div class="n" id="cs">—</div><div class="l">character set</div></div>
+    </div>
+    <table id="crack"></table>
+    <div class="chips" id="chips"></div>
+  </div>
+  <div class="card">
+    <h2>Generate a strong secret</h2>
+    <label>Length <b id="lv" style="float:right;color:var(--ac)">18</b></label>
+    <input type="range" id="length" min="8" max="48" value="18" style="width:100%" oninput="lv.textContent=this.value">
+    <div class="row" style="margin-top:14px">
+      <button onclick="gen('pw')">Password</button>
+      <button class="ghost" onclick="gen('phrase')">Passphrase</button>
+      <button class="ghost" onclick="copyGen()">Copy</button>
+    </div>
+    <div class="gen" id="out">click generate…</div>
+  </div>
+  <p class="muted" style="text-align:center">No password is ever sent anywhere — all analysis runs locally.</p>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const COMMON=new Set(["password","123456","123456789","qwerty","abc123","111111","12345678","iloveyou","admin","welcome","letmein","dragon","monkey","password1","qwerty123","000000","sunshine","princess"]);
+const COL=["#dc2626","#ea580c","#d97706","#65a30d","#16a34a"];
+const RATES={"online (100/s)":1e2,"online fast (10k/s)":1e4,"offline hash (1M/s)":1e6,"GPU farm (100B/s)":1e11};
+function human(sec){if(sec<1)return "instant";const u=[["years",31557600],["days",86400],["hours",3600],["minutes",60],["seconds",1]];for(const[n,s]of u){if(sec>=s){const v=sec/s;return v>1e6?v.toExponential(1)+" "+n:Math.round(v)+" "+n}}return "instant"}
+function analyze(){
+  const pw=$('pw').value;
+  if(!pw){$('bar').style.width='0';$('label').textContent='—';$('score').textContent=0;$('ent').textContent='—';$('len').textContent='—';$('cs').textContent='—';$('crack').innerHTML='';$('chips').innerHTML='';return}
+  let cs=0;if(/[a-z]/.test(pw))cs+=26;if(/[A-Z]/.test(pw))cs+=26;if(/[0-9]/.test(pw))cs+=10;if(/[^A-Za-z0-9]/.test(pw))cs+=33;cs=Math.max(cs,1);
+  const ent=+(pw.length*Math.log2(cs)).toFixed(1);
+  const issues=[],good=[];
+  (pw.length>=12?good:issues).push(pw.length>=12?"12+ characters":"too short (use 12+)");
+  [["lowercase",/[a-z]/],["uppercase",/[A-Z]/],["a number",/[0-9]/],["a symbol",/[^A-Za-z0-9]/]].forEach(([n,r])=>(r.test(pw)?good:issues).push(r.test(pw)?"has "+n:"add "+n));
+  if(COMMON.has(pw.toLowerCase()))issues.push("common password");else good.push("not a known common password");
+  if(/(.)\1\1/.test(pw))issues.push("repeated characters");
+  if(/(0123|1234|2345|abcd|qwer)/i.test(pw))issues.push("predictable sequence");
+  let guesses=Math.pow(cs,pw.length)/2;if(COMMON.has(pw.toLowerCase()))guesses=10;
+  let score=Math.max(0,Math.min(100,Math.round(ent/90*100)-14*issues.length));if(COMMON.has(pw.toLowerCase()))score=3;
+  $('bar').style.width=score+'%';$('bar').style.background=COL[Math.min(4,Math.floor(score/20))];
+  $('label').textContent=["Very weak","Weak","Fair","Strong","Very strong"][Math.min(4,Math.floor(score/20))];
+  $('score').textContent=score;$('ent').textContent=ent;$('len').textContent=pw.length;$('cs').textContent=cs;
+  $('crack').innerHTML=Object.entries(RATES).map(([k,r])=>`<tr><td>${k}</td><td class="t-r">${human(guesses/r)}</td></tr>`).join('');
+  $('chips').innerHTML=issues.map(i=>`<span class="chip c-bad">✗ ${i}</span>`).join('')+good.map(g=>`<span class="chip c-ok">✓ ${g}</span>`).join('');
+}
+function rand(n){const a=new Uint32Array(n);crypto.getRandomValues(a);return a}
+function gen(kind){
+  if(kind==='phrase'){const w=["anchor","breeze","cobalt","ember","falcon","granite","harbor","ivory","jasper","kestrel","lumen","marble","nimbus","onyx","quartz","raven","summit","timber","vertex","willow","zephyr"];const r=rand(5);$('out').textContent=[...r].slice(0,4).map(x=>w[x%w.length]).join('-')+'-'+(rand(1)[0]%100);return}
+  const L=+$('length').value,set="ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*-_=+?";const r=rand(L);
+  $('out').textContent=[...r].map(x=>set[x%set.length]).join('');
+}
+function copyGen(){navigator.clipboard&&navigator.clipboard.writeText($('out').textContent)}
+gen('pw');
+</script>
+</body>
+</html>

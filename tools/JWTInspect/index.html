@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JWTInspect — JWT Decoder & Inspector</title>
+<style>
+  :root{--bg:#f5f6fb;--card:#fff;--ink:#141627;--mut:#656a85;--line:#e4e6f1;--ac:#4f46e5;--ac2:#4338ca;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;
+        --red:#e11d48;--pur:#7c3aed;--blu:#2563eb}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .top{display:flex;align-items:center;gap:12px;padding:22px 28px;background:var(--card);border-bottom:1px solid var(--line)}
+  .logo{width:38px;height:38px}.top h1{margin:0;font-size:20px;letter-spacing:-.02em}.top p{margin:0;color:var(--mut);font-size:13px}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 18px 80px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0000000a}
+  h2{font-size:15px;margin:0 0 12px}
+  textarea,input{width:100%;border:1px solid var(--line);border-radius:12px;padding:13px 14px;font-family:ui-monospace,Menlo,monospace;font-size:13px;background:#fbfbfe}
+  textarea{min-height:110px;word-break:break-all}input:focus,textarea:focus{outline:2px solid var(--ac)}
+  .token{word-break:break-all;font-family:ui-monospace,Menlo,monospace;font-size:14px;line-height:1.7}
+  .p1{color:var(--red)}.p2{color:var(--pur)}.p3{color:var(--blu)}
+  pre{background:#0f1320;color:#e7eaf3;border-radius:12px;padding:16px;overflow:auto;font-size:13px;margin:0}
+  .k{color:#7dd3fc}.v{color:#fca5a5}.n{color:#a5b4fc}
+  .seg h2 small{font-weight:500;font-size:11px;padding:2px 8px;border-radius:99px;margin-left:8px}
+  .warn{display:flex;gap:9px;padding:10px 0;border-bottom:1px solid var(--line);align-items:flex-start}.warn:last-child{border:0}
+  .dot{width:9px;height:9px;border-radius:50%;margin-top:7px;flex:none}.d-bad{background:var(--bad)}.d-warn{background:var(--warn)}.d-ok{background:var(--ok)}
+  .muted{color:var(--mut);font-size:13px}label{display:block;font-size:13px;color:var(--mut);margin:10px 0 6px}
+  button{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:11px 16px;font:inherit;font-weight:600;cursor:pointer;margin-top:10px}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}.kv:last-child{border:0}.kv .kk{color:var(--mut)}
+</style>
+</head>
+<body>
+<div class="top">
+  <svg class="logo" viewBox="0 0 40 40" fill="none"><rect x="6" y="11" width="28" height="18" rx="5" fill="#4f46e5"/><path d="M13 20h3M20 16v8M20 16l-2.5 2M20 16l2.5 2M27 20h-3" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+  <div><h1>JWTInspect</h1><p>Decode &amp; inspect JSON Web Tokens — nothing is sent to a server</p></div>
+</div>
+<div class="wrap">
+  <div class="card">
+    <h2>Paste a JWT</h2>
+    <textarea id="jwt" class="token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJuYW1lIjoiSGFyc2hhIiwiaWF0IjoxNzAwMDAwMDAwfQ.sig" oninput="decode()"></textarea>
+    <button onclick="loadSample()">Load sample token</button>
+    <div class="token" id="colored" style="margin-top:14px"></div>
+  </div>
+  <div id="out"></div>
+  <div class="card" id="verifyCard" style="display:none">
+    <h2>Verify signature (HS256 only)</h2>
+    <p class="muted">Enter the shared secret to check the HMAC-SHA256 signature locally.</p>
+    <input id="secret" placeholder="HMAC secret…" oninput="verify()">
+    <div id="verifyOut" style="margin-top:10px"></div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);let parts=null,headerObj=null,payloadObj=null;
+function b64urlToStr(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return decodeURIComponent(escape(atob(s)))}
+function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function pretty(o){return esc(JSON.stringify(o,null,2)).replace(/"([^"]+)":/g,'<span class="k">"$1"</span>:').replace(/: "([^"]*)"/g,': <span class="v">"$1"</span>').replace(/: (\d+)/g,': <span class="n">$1</span>')}
+function loadSample(){const h=btoa(JSON.stringify({alg:"HS256",typ:"JWT"})).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+  const p=btoa(JSON.stringify({sub:"1234567890",name:"Harsha Malepati",role:"admin",iat:1700000000,exp:1700003600})).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+  $('jwt').value=h+"."+p+".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";decode()}
+function decode(){
+  const t=$('jwt').value.trim();$('out').innerHTML='';$('verifyCard').style.display='none';$('colored').innerHTML='';parts=null;headerObj=null;payloadObj=null;
+  if(!t)return;parts=t.split('.');
+  if(parts.length!==3||!parts[0]||!parts[1]){$('out').innerHTML='<div class="card" style="color:var(--bad)">Not a valid JWT (needs header.payload.signature).</div>';parts=null;return}
+  $('colored').innerHTML=`<span class="p1">${esc(parts[0])}</span>.<span class="p2">${esc(parts[1])}</span>${parts[2]?'.<span class="p3">'+esc(parts[2])+'</span>':''}`;
+  try{headerObj=JSON.parse(b64urlToStr(parts[0]));payloadObj=JSON.parse(b64urlToStr(parts[1]));if(!headerObj||typeof headerObj!=='object'||Array.isArray(headerObj)||!payloadObj||typeof payloadObj!=='object'||Array.isArray(payloadObj))throw new Error('JWT header and payload must be JSON objects')}
+  catch{parts=null;headerObj=null;payloadObj=null;$('out').innerHTML='<div class="card" style="color:var(--bad)">Could not decode the Base64URL segments.</div>';return}
+  const warns=analyze();
+  $('out').innerHTML=`
+    <div class="card seg"><h2 style="color:var(--red)">Header <small style="background:#fde2e4;color:var(--red)">algorithm & type</small></h2><pre>${pretty(headerObj)}</pre></div>
+    <div class="card seg"><h2 style="color:var(--pur)">Payload <small style="background:#efe4fd;color:var(--pur)">claims</small></h2><pre>${pretty(payloadObj)}</pre>${claimsTable()}</div>
+    <div class="card"><h2>Security notes</h2>${warns.map(w=>`<div class="warn"><span class="dot d-${w[1]}"></span><span>${esc(w[0])}</span></div>`).join('')}</div>`;
+  if(typeof headerObj.alg==='string'&&headerObj.alg.toUpperCase()==='HS256'){$('verifyCard').style.display='';$('verifyOut').innerHTML=''}
+}
+function ts(x){return typeof x==='number'?new Date(x*1000).toUTCString():null}
+function claimsTable(){const C={iat:"Issued at",exp:"Expires",nbf:"Not before",iss:"Issuer",aud:"Audience",sub:"Subject"};
+  const rows=Object.keys(C).filter(k=>k in payloadObj).map(k=>`<div class="kv"><span class="kk">${C[k]} (${k})</span><span>${esc(ts(payloadObj[k])||payloadObj[k])}</span></div>`).join('');
+  return rows?'<div style="margin-top:12px">'+rows+'</div>':''}
+function analyze(){const w=[];const alg=typeof headerObj.alg==='string'?headerObj.alg.toUpperCase():'';
+  if(alg==='NONE'){w.push(["⚠ alg is \"none\" — the token is UNSIGNED. Servers must reject this; it's a classic JWT bypass.","bad"])}
+  else{w.push([`Algorithm: ${alg||'unknown'}.`,"ok"])}
+  if('exp'in payloadObj){const exp=payloadObj.exp*1000,now=Date.now();if(exp<now)w.push(["Token is EXPIRED ("+new Date(exp).toUTCString()+").","bad"]);else w.push(["Expires "+new Date(exp).toUTCString()+".","ok"])}
+  else w.push(["No 'exp' claim — token never expires on its own.","warn"]);
+  if(alg.startsWith('HS'))w.push(["HMAC (symmetric) signature — security depends entirely on the secret's strength.","warn"]);
+  return w}
+async function verify(){const secret=$('secret').value;if(!secret||!parts){$('verifyOut').innerHTML='';return}
+  try{const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+    const sig=await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(parts[0]+"."+parts[1]));
+    const b64=btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
+    const ok=b64===parts[2];
+    $('verifyOut').innerHTML=ok?'<div class="warn"><span class="dot d-ok"></span><b style="color:var(--ok)">Signature valid — this secret signed the token.</b></div>':'<div class="warn"><span class="dot d-bad"></span><b style="color:var(--bad)">Signature does NOT match this secret.</b></div>';
+  }catch{$('verifyOut').innerHTML='<span class="muted">could not compute HMAC</span>'}
+}
+</script>
+</body>
+</html>

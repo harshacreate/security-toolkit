@@ -1,0 +1,12 @@
+{
+  "name": "security-toolkit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser smoke tests for the standalone security toolkit pages",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0"
+  }
+}
