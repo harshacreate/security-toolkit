@@ -35,6 +35,8 @@ npx playwright install chromium
 npm test
 ```
 
+After Pages is enabled, the same suite can check the live site with `BASE_URL=https://harshacreate.github.io/security-toolkit/ npm test`.
+
 ## GitHub Pages
 
 The workflow in `.github/workflows/pages.yml` publishes the repository root. Set the repository's Pages source to **GitHub Actions** to enable the live links above.
